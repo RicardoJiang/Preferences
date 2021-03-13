@@ -1,20 +1,19 @@
 package com.forjrking.preferences.kt
 
 import android.app.Application
-import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
 import com.forjrking.preferences.crypt.AesCrypt
 import com.forjrking.preferences.crypt.Crypt
 import com.forjrking.preferences.kt.bindings.*
-import com.forjrking.preferences.serialize.Serializer
 import com.forjrking.preferences.provide.createSharedPreferences
+import com.forjrking.preferences.serialize.Serializer
+import com.tencent.mmkv.MMKV
+import com.tencent.mmkv.MMKVLogLevel
 import java.lang.reflect.Type
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.KProperty1
-import kotlin.reflect.full.createInstance
 import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.jvm.isAccessible
 
@@ -26,14 +25,17 @@ import kotlin.reflect.jvm.isAccessible
  * @param isMultiProcess 是否使用多进程  建议mmkv搭配使用 sp性能很差
  */
 open class PreferenceHolder(
-    name: String? = null, cryptKey: String? = null, isMMKV: Boolean = false, isMultiProcess: Boolean = false
+    name: String? = null,
+    cryptKey: String? = null,
+    isMMKV: Boolean = false,
+    isMultiProcess: Boolean = false
 ) {
 
     open val preferences: SharedPreferences by lazy {
         if (!isInitialized()) {
             throw IllegalStateException("PreferenceHolder is not initialed")
         }
-        context.createSharedPreferences(name ?: this::class.qualifiedName, cryptKey, isMultiProcess, isMMKV)
+        SpProxy(MMKV.mmkvWithID(name))
     }
     /** DES: 减小edit实例化时候集合多次创建开销 */
     internal val edit : SharedPreferences.Editor by lazy { preferences.edit() }
@@ -117,5 +119,30 @@ open class PreferenceHolder(
             get() {
                 return field ?: throw ExceptionInInitializerError("serializer is null")
             }
+
+        fun migrate(migrateSp:SpProxy,preferences: SharedPreferences){
+            val kvs = preferences.all
+           if (kvs != null && kvs.isNotEmpty()) {
+               val iterator = kvs.entries.iterator()
+                while (iterator.hasNext()) {
+                    val entry = iterator.next()
+                    val key = entry.key
+                    val value = entry.value
+                    if (key != null && value != null) {
+                        migrateSp.run {
+                            when (value) {
+                                is Boolean -> this.putBoolean(key, value)
+                                is Int ->  this.putInt(key,value)
+                                is Long -> this.putLong(key,value)
+                                is Float -> this.putFloat(key, value)
+                                is String -> this.putString(key,value)
+                                else -> {}
+                            }
+                        }
+                    }
+                }
+                kvs.size
+            }
+        }
     }
 }
